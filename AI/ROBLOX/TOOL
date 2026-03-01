@@ -1,0 +1,1109 @@
+local AI = {
+	OPENROUTER_KEY = "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",
+	MODEL = "deepseek/deepseek-chat",
+	ENDPOINT = "https://openrouter.ai/api/v1/chat/completions",
+	APP_NAME = "Roblox CMD UI",
+}
+
+local Exec = {
+	PendingCode = nil,
+	PendingNote = nil,
+}
+
+pcall(function()
+	local cg = game:GetService("CoreGui")
+	local old = cg:FindFirstChild("CMD_UI")
+	if old then old:Destroy() end
+end)
+
+local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
+local TextService = game:GetService("TextService")
+local TweenService = game:GetService("TweenService")
+local LocalizationService = game:GetService("LocalizationService")
+
+local ui = Instance.new("ScreenGui")
+ui.Name = "CMD_UI"
+ui.Parent = game:GetService("CoreGui")
+ui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ui.ResetOnSpawn = false
+
+local Main = Instance.new("Frame")
+Main.Parent = ui
+Main.Size = UDim2.new(0, 520, 0, 320)
+Main.Position = UDim2.new(0.3, 0, 0.3, 0)
+Main.BackgroundColor3 = Color3.fromRGB(12, 12, 12)
+Main.BorderSizePixel = 0
+Main.Active = true
+Main.Draggable = true
+
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 8)
+MainCorner.Parent = Main
+
+local Top = Instance.new("Frame")
+Top.Parent = Main
+Top.Size = UDim2.new(1, 0, 0, 30)
+Top.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+Top.BorderSizePixel = 0
+
+local TopCorner = Instance.new("UICorner")
+TopCorner.CornerRadius = UDim.new(0, 8)
+TopCorner.Parent = Top
+
+local TopMask = Instance.new("Frame")
+TopMask.Parent = Top
+TopMask.Position = UDim2.new(0, 0, 1, -8)
+TopMask.Size = UDim2.new(1, 0, 0, 8)
+TopMask.BackgroundColor3 = Top.BackgroundColor3
+TopMask.BorderSizePixel = 0
+
+local TopTitle = Instance.new("TextLabel")
+TopTitle.Parent = Top
+TopTitle.BackgroundTransparency = 1
+TopTitle.BorderSizePixel = 0
+TopTitle.Position = UDim2.new(0, 10, 0, 0)
+TopTitle.Size = UDim2.new(1, -220, 1, 0)
+TopTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+TopTitle.Font = Enum.Font.Code
+TopTitle.TextSize = 14
+TopTitle.Text = "KNEEL AND KISS THE RAIN"
+TopTitle.TextXAlignment = Enum.TextXAlignment.Left
+
+local Buttons = Instance.new("Frame")
+Buttons.Parent = Top
+Buttons.BackgroundTransparency = 1
+Buttons.BorderSizePixel = 0
+Buttons.AnchorPoint = Vector2.new(1, 0)
+Buttons.Position = UDim2.new(1, -8, 0, 4)
+Buttons.Size = UDim2.new(0, 150, 0, 22)
+
+local BtnLayout = Instance.new("UIListLayout")
+BtnLayout.Parent = Buttons
+BtnLayout.FillDirection = Enum.FillDirection.Horizontal
+BtnLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+BtnLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+BtnLayout.SortOrder = Enum.SortOrder.LayoutOrder
+BtnLayout.Padding = UDim.new(0, 6)
+
+local function makeTopBtn(text, hoverColor, normalColor)
+	local b = Instance.new("TextButton")
+	b.AutoButtonColor = false
+	b.Text = text
+	b.Font = Enum.Font.Code
+	b.TextSize = 14
+	b.TextColor3 = Color3.fromRGB(235, 235, 235)
+	b.BackgroundColor3 = normalColor
+	b.BorderSizePixel = 0
+	b.Size = UDim2.new(0, 38, 0, 22)
+
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, 6)
+	c.Parent = b
+
+	local s = Instance.new("UIStroke")
+	s.Thickness = 1
+	s.Color = Color3.fromRGB(40, 40, 40)
+	s.Parent = b
+
+	b.MouseEnter:Connect(function()
+		b.BackgroundColor3 = hoverColor
+	end)
+	b.MouseLeave:Connect(function()
+		b.BackgroundColor3 = normalColor
+	end)
+
+	return b
+end
+
+local MinBtn = makeTopBtn("—", Color3.fromRGB(35, 35, 35), Color3.fromRGB(26, 26, 26))
+MinBtn.LayoutOrder = 1
+MinBtn.Parent = Buttons
+
+local CloseBtn = makeTopBtn("X", Color3.fromRGB(120, 30, 30), Color3.fromRGB(26, 26, 26))
+CloseBtn.LayoutOrder = 2
+CloseBtn.Parent = Buttons
+
+local AiStatus = Instance.new("TextLabel")
+AiStatus.Parent = Top
+AiStatus.BackgroundTransparency = 1
+AiStatus.BorderSizePixel = 0
+AiStatus.AnchorPoint = Vector2.new(1, 0)
+AiStatus.Position = UDim2.new(1, -170, 0, 0)
+AiStatus.Size = UDim2.new(0, 150, 1, 0)
+AiStatus.Font = Enum.Font.Code
+AiStatus.TextSize = 13
+AiStatus.TextColor3 = Color3.fromRGB(180, 180, 180)
+AiStatus.TextXAlignment = Enum.TextXAlignment.Right
+AiStatus.Text = "AI: idle"
+
+local Output = Instance.new("ScrollingFrame")
+Output.Parent = Main
+Output.Position = UDim2.new(0, 6, 0, 34)
+Output.Size = UDim2.new(1, -12, 1, -70)
+Output.BackgroundTransparency = 1
+Output.BorderSizePixel = 0
+Output.ScrollBarThickness = 6
+Output.CanvasSize = UDim2.new(0, 0, 0, 0)
+Output.ScrollingDirection = Enum.ScrollingDirection.Y
+
+local Layout = Instance.new("UIListLayout")
+Layout.Parent = Output
+Layout.SortOrder = Enum.SortOrder.LayoutOrder
+Layout.Padding = UDim.new(0, 2)
+
+local InputHolder = Instance.new("Frame")
+InputHolder.Parent = Main
+InputHolder.Position = UDim2.new(0, 6, 1, -30)
+InputHolder.Size = UDim2.new(1, -12, 0, 22)
+InputHolder.BackgroundTransparency = 1
+
+local Prompt = Instance.new("TextLabel")
+Prompt.Parent = InputHolder
+Prompt.BackgroundTransparency = 1
+Prompt.BorderSizePixel = 0
+Prompt.Position = UDim2.new(0, 0, 0, 0)
+Prompt.Size = UDim2.new(0, 14, 1, 0)
+Prompt.Font = Enum.Font.Code
+Prompt.Text = ">"
+Prompt.TextColor3 = Color3.fromRGB(200, 200, 200)
+Prompt.TextSize = 14
+Prompt.TextXAlignment = Enum.TextXAlignment.Left
+Prompt.TextYAlignment = Enum.TextYAlignment.Center
+
+local InputBox = Instance.new("TextBox")
+InputBox.Parent = InputHolder
+InputBox.BackgroundTransparency = 1
+InputBox.BorderSizePixel = 0
+InputBox.Position = UDim2.new(0, 14, 0, 0)
+InputBox.Size = UDim2.new(1, -14, 1, 0)
+InputBox.Font = Enum.Font.Code
+InputBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+InputBox.TextSize = 14
+InputBox.Text = ""
+InputBox.ClearTextOnFocus = false
+InputBox.TextXAlignment = Enum.TextXAlignment.Left
+InputBox.TextYAlignment = Enum.TextYAlignment.Center
+
+local Cursor = Instance.new("TextLabel")
+Cursor.Parent = InputHolder
+Cursor.BackgroundTransparency = 1
+Cursor.BorderSizePixel = 0
+Cursor.Size = UDim2.new(0, 10, 1, 0)
+Cursor.Font = Enum.Font.Code
+Cursor.Text = "_"
+Cursor.TextColor3 = Color3.fromRGB(255, 255, 255)
+Cursor.TextSize = 14
+Cursor.TextXAlignment = Enum.TextXAlignment.Left
+Cursor.TextYAlignment = Enum.TextYAlignment.Center
+
+local function updateCursor()
+	local text = InputBox.Text or ""
+	local bounds = TextService:GetTextSize(text, InputBox.TextSize, InputBox.Font, Vector2.new(1000, 22))
+	Cursor.Position = UDim2.new(0, 14 + bounds.X, 0, 0)
+end
+InputBox:GetPropertyChangedSignal("Text"):Connect(updateCursor)
+updateCursor()
+
+task.spawn(function()
+	while ui.Parent do
+		Cursor.Visible = not Cursor.Visible
+		task.wait(0.5)
+	end
+end)
+
+local function addLine(text, color)
+	local L = Instance.new("TextLabel")
+	L.Parent = Output
+	L.BackgroundTransparency = 1
+	L.BorderSizePixel = 0
+	L.Size = UDim2.new(1, -6, 0, 18)
+	L.Font = Enum.Font.Code
+	L.TextSize = 14
+	L.TextXAlignment = Enum.TextXAlignment.Left
+	L.TextYAlignment = Enum.TextYAlignment.Center
+	L.TextColor3 = color
+	L.Text = text
+
+	task.wait()
+	Output.CanvasSize = UDim2.new(0, 0, 0, Layout.AbsoluteContentSize.Y + 2)
+	Output.CanvasPosition = Vector2.new(0, math.max(0, Layout.AbsoluteContentSize.Y))
+end
+
+local CMD = {}
+function CMD:Print(t) addLine(tostring(t), Color3.fromRGB(255, 255, 255)) end
+function CMD:Success(t) addLine(tostring(t), Color3.fromRGB(0, 255, 0)) end
+function CMD:Error(t) addLine(tostring(t), Color3.fromRGB(255, 80, 80)) end
+function CMD:Clear()
+	for _, v in ipairs(Output:GetChildren()) do
+		if v:IsA("TextLabel") then v:Destroy() end
+	end
+	task.wait()
+	Output.CanvasSize = UDim2.new(0, 0, 0, 0)
+	Output.CanvasPosition = Vector2.new(0, 0)
+end
+function CMD:Destroy()
+	if ui then ui:Destroy() end
+end
+
+local Perk = "Free" 
+local basicTrialActive = false
+
+local function getRegionalPrices()
+	local loc = tostring(LocalizationService.RobloxLocaleId or "en-us"):lower()
+	local currency = "$"
+	if loc:find("nl") or loc:find("de") or loc:find("fr") or loc:find("es") or loc:find("it") or loc:find("pt") then
+		currency = "€"
+	elseif loc:find("gb") then
+		currency = "£"
+	end
+	return currency .. "1.99", currency .. "29.99"
+end
+
+local BASIC_PRICE, PREMIUM_PRICE = getRegionalPrices()
+
+local CalcScreen = Instance.new("Frame")
+CalcScreen.Parent = ui
+CalcScreen.Visible = false
+CalcScreen.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
+CalcScreen.BackgroundTransparency = 0.08
+CalcScreen.BorderSizePixel = 0
+CalcScreen.Size = UDim2.new(0, 520, 0, 320)
+CalcScreen.Position = Main.Position
+CalcScreen.Active = true
+CalcScreen.Draggable = true
+CalcScreen.ZIndex = 50
+
+local CalcCorner = Instance.new("UICorner")
+CalcCorner.CornerRadius = UDim.new(0, 10)
+CalcCorner.Parent = CalcScreen
+
+local CalcStroke = Instance.new("UIStroke")
+CalcStroke.Thickness = 1
+CalcStroke.Color = Color3.fromRGB(40, 40, 40)
+CalcStroke.Parent = CalcScreen
+
+local CalcTop = Instance.new("Frame")
+CalcTop.Parent = CalcScreen
+CalcTop.Size = UDim2.new(1, 0, 0, 30)
+CalcTop.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+CalcTop.BorderSizePixel = 0
+CalcTop.ZIndex = 51
+
+local CalcTopCorner = Instance.new("UICorner")
+CalcTopCorner.CornerRadius = UDim.new(0, 10)
+CalcTopCorner.Parent = CalcTop
+
+local CalcTopMask = Instance.new("Frame")
+CalcTopMask.Parent = CalcTop
+CalcTopMask.Position = UDim2.new(0, 0, 1, -10)
+CalcTopMask.Size = UDim2.new(1, 0, 0, 10)
+CalcTopMask.BackgroundColor3 = CalcTop.BackgroundColor3
+CalcTopMask.BorderSizePixel = 0
+CalcTopMask.ZIndex = 51
+
+local CalcTitle = Instance.new("TextLabel")
+CalcTitle.Parent = CalcTop
+CalcTitle.BackgroundTransparency = 1
+CalcTitle.Size = UDim2.new(1, -120, 1, 0)
+CalcTitle.Position = UDim2.new(0, 10, 0, 0)
+CalcTitle.Font = Enum.Font.Code
+CalcTitle.TextSize = 14
+CalcTitle.TextXAlignment = Enum.TextXAlignment.Left
+CalcTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+CalcTitle.Text = "Calculator"
+
+local BackBtn = Instance.new("TextButton")
+BackBtn.Parent = CalcTop
+BackBtn.AutoButtonColor = false
+BackBtn.Size = UDim2.new(0, 92, 0, 22)
+BackBtn.Position = UDim2.new(1, -102, 0, 4)
+BackBtn.BackgroundColor3 = Color3.fromRGB(26, 26, 26)
+BackBtn.TextColor3 = Color3.fromRGB(235, 235, 235)
+BackBtn.Font = Enum.Font.Code
+BackBtn.TextSize = 14
+BackBtn.Text = "< Back"
+BackBtn.ZIndex = 52
+
+do
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, 6)
+	c.Parent = BackBtn
+	local s = Instance.new("UIStroke")
+	s.Thickness = 1
+	s.Color = Color3.fromRGB(40, 40, 40)
+	s.Parent = BackBtn
+	BackBtn.MouseEnter:Connect(function()
+		BackBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+	end)
+	BackBtn.MouseLeave:Connect(function()
+		BackBtn.BackgroundColor3 = Color3.fromRGB(26, 26, 26)
+	end)
+end
+
+local Display = Instance.new("TextLabel")
+Display.Parent = CalcScreen
+Display.BackgroundColor3 = Color3.fromRGB(14, 14, 14)
+Display.BorderSizePixel = 0
+Display.Position = UDim2.new(0, 12, 0, 44)
+Display.Size = UDim2.new(1, -24, 0, 46)
+Display.Font = Enum.Font.Code
+Display.TextSize = 22
+Display.TextXAlignment = Enum.TextXAlignment.Right
+Display.TextYAlignment = Enum.TextYAlignment.Center
+Display.TextColor3 = Color3.fromRGB(255, 255, 255)
+Display.Text = "0"
+Display.ZIndex = 51
+
+local DisplayCorner = Instance.new("UICorner")
+DisplayCorner.CornerRadius = UDim.new(0, 8)
+DisplayCorner.Parent = Display
+
+local DisplayStroke = Instance.new("UIStroke")
+DisplayStroke.Thickness = 1
+DisplayStroke.Color = Color3.fromRGB(35, 35, 35)
+DisplayStroke.Parent = Display
+
+local PerkLabel = Instance.new("TextLabel")
+PerkLabel.Parent = CalcScreen
+PerkLabel.BackgroundTransparency = 1
+PerkLabel.Position = UDim2.new(0, 12, 0, 94)
+PerkLabel.Size = UDim2.new(1, -24, 0, 18)
+PerkLabel.Font = Enum.Font.Code
+PerkLabel.TextSize = 13
+PerkLabel.TextXAlignment = Enum.TextXAlignment.Left
+PerkLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+PerkLabel.Text = "Perk: Free (digits only)"
+PerkLabel.ZIndex = 51
+
+local function refreshPerkLabel()
+	if Perk == "Free" then
+		PerkLabel.Text = "Perk: Free (digits only)"
+	elseif Perk == "Basic" then
+		PerkLabel.Text = ("Perk: Basic (%s) - operators enabled%s"):format(BASIC_PRICE, basicTrialActive and " (trial)" or "")
+	elseif Perk == "Premium" then
+		PerkLabel.Text = ("Perk: Premium (%s) - equals enabled"):format(PREMIUM_PRICE)
+	end
+end
+
+local Pad = Instance.new("Frame")
+Pad.Parent = CalcScreen
+Pad.BackgroundTransparency = 1
+Pad.Position = UDim2.new(0, 12, 0, 116)
+Pad.Size = UDim2.new(1, -24, 1, -128)
+Pad.ZIndex = 51
+
+local Grid = Instance.new("UIGridLayout")
+Grid.Parent = Pad
+Grid.CellPadding = UDim2.new(0, 8, 0, 8)
+Grid.CellSize = UDim2.new(0, 115, 0, 40)
+Grid.FillDirectionMaxCells = 4
+Grid.SortOrder = Enum.SortOrder.LayoutOrder
+
+local function makeKey(text)
+	local b = Instance.new("TextButton")
+	b.AutoButtonColor = false
+	b.BackgroundColor3 = Color3.fromRGB(22, 22, 22)
+	b.BorderSizePixel = 0
+	b.Font = Enum.Font.Code
+	b.TextSize = 18
+	b.TextColor3 = Color3.fromRGB(245, 245, 245)
+	b.Text = text
+	b.ZIndex = 52
+
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, 8)
+	c.Parent = b
+
+	local s = Instance.new("UIStroke")
+	s.Thickness = 1
+	s.Color = Color3.fromRGB(38, 38, 38)
+	s.Parent = b
+
+	b.MouseEnter:Connect(function()
+		b.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+	end)
+	b.MouseLeave:Connect(function()
+		b.BackgroundColor3 = Color3.fromRGB(22, 22, 22)
+	end)
+
+	return b
+end
+
+local ModalShade = Instance.new("Frame")
+ModalShade.Parent = CalcScreen
+ModalShade.Visible = false
+ModalShade.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+ModalShade.BackgroundTransparency = 0.35
+ModalShade.BorderSizePixel = 0
+ModalShade.Size = UDim2.new(1, 0, 1, 0)
+ModalShade.ZIndex = 200
+
+local Modal = Instance.new("Frame")
+Modal.Parent = ModalShade
+Modal.BackgroundColor3 = Color3.fromRGB(16, 16, 16)
+Modal.BorderSizePixel = 0
+Modal.AnchorPoint = Vector2.new(0.5, 0.5)
+Modal.Position = UDim2.new(0.5, 0, 0.5, 0)
+Modal.Size = UDim2.new(0, 420, 0, 210)
+Modal.ZIndex = 201
+
+local ModalCorner = Instance.new("UICorner")
+ModalCorner.CornerRadius = UDim.new(0, 12)
+ModalCorner.Parent = Modal
+
+local ModalStroke = Instance.new("UIStroke")
+ModalStroke.Thickness = 1
+ModalStroke.Color = Color3.fromRGB(50, 50, 50)
+ModalStroke.Parent = Modal
+
+local ModalTitle = Instance.new("TextLabel")
+ModalTitle.Parent = Modal
+ModalTitle.BackgroundTransparency = 1
+ModalTitle.Position = UDim2.new(0, 14, 0, 12)
+ModalTitle.Size = UDim2.new(1, -28, 0, 22)
+ModalTitle.Font = Enum.Font.Code
+ModalTitle.TextSize = 16
+ModalTitle.TextXAlignment = Enum.TextXAlignment.Left
+ModalTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+ModalTitle.ZIndex = 202
+ModalTitle.Text = "Upgrade required"
+
+local ModalBody = Instance.new("TextLabel")
+ModalBody.Parent = Modal
+ModalBody.BackgroundTransparency = 1
+ModalBody.Position = UDim2.new(0, 14, 0, 38)
+ModalBody.Size = UDim2.new(1, -28, 0, 46)
+ModalBody.Font = Enum.Font.Code
+ModalBody.TextSize = 13
+ModalBody.TextXAlignment = Enum.TextXAlignment.Left
+ModalBody.TextYAlignment = Enum.TextYAlignment.Top
+ModalBody.TextColor3 = Color3.fromRGB(190, 190, 190)
+ModalBody.ZIndex = 202
+ModalBody.TextWrapped = true
+ModalBody.Text = ""
+
+local ModalBtns = Instance.new("Frame")
+ModalBtns.Parent = Modal
+ModalBtns.BackgroundTransparency = 1
+ModalBtns.Position = UDim2.new(0, 14, 0, 92)
+ModalBtns.Size = UDim2.new(1, -28, 1, -106)
+ModalBtns.ZIndex = 202
+
+local ModalLayout = Instance.new("UIListLayout")
+ModalLayout.Parent = ModalBtns
+ModalLayout.SortOrder = Enum.SortOrder.LayoutOrder
+ModalLayout.Padding = UDim.new(0, 8)
+
+local function modalButton(text, subText)
+	local holder = Instance.new("TextButton")
+	holder.AutoButtonColor = false
+	holder.BackgroundColor3 = Color3.fromRGB(22, 22, 22)
+	holder.BorderSizePixel = 0
+	holder.Size = UDim2.new(1, 0, 0, 40)
+	holder.Text = ""
+	holder.ZIndex = 203
+
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, 10)
+	c.Parent = holder
+
+	local s = Instance.new("UIStroke")
+	s.Thickness = 1
+	s.Color = Color3.fromRGB(38, 38, 38)
+	s.Parent = holder
+
+	local t1 = Instance.new("TextLabel")
+	t1.Parent = holder
+	t1.BackgroundTransparency = 1
+	t1.Position = UDim2.new(0, 10, 0, 4)
+	t1.Size = UDim2.new(1, -20, 0, 18)
+	t1.Font = Enum.Font.Code
+	t1.TextSize = 14
+	t1.TextXAlignment = Enum.TextXAlignment.Left
+	t1.TextColor3 = Color3.fromRGB(245, 245, 245)
+	t1.ZIndex = 204
+	t1.Text = text
+
+	local t2 = Instance.new("TextLabel")
+	t2.Parent = holder
+	t2.BackgroundTransparency = 1
+	t2.Position = UDim2.new(0, 10, 0, 20)
+	t2.Size = UDim2.new(1, -20, 0, 16)
+	t2.Font = Enum.Font.Code
+	t2.TextSize = 12
+	t2.TextXAlignment = Enum.TextXAlignment.Left
+	t2.TextColor3 = Color3.fromRGB(170, 170, 170)
+	t2.ZIndex = 204
+	t2.Text = subText or ""
+
+	holder.MouseEnter:Connect(function()
+		holder.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+	end)
+	holder.MouseLeave:Connect(function()
+		holder.BackgroundColor3 = Color3.fromRGB(22, 22, 22)
+	end)
+
+	return holder
+end
+
+local function clearModalButtons()
+	for _, ch in ipairs(ModalBtns:GetChildren()) do
+		if ch:IsA("TextButton") then ch:Destroy() end
+	end
+end
+
+local function popModal(message)
+	ModalShade.Visible = true
+	ModalBody.Text = message
+	Modal.Size = UDim2.new(0, 380, 0, 190)
+	Modal.BackgroundTransparency = 0.05
+	local tw = TweenService:Create(
+		Modal,
+		TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+		{ Size = UDim2.new(0, 420, 0, 210) }
+	)
+	tw:Play()
+end
+
+local function closeModal()
+	ModalShade.Visible = false
+end
+
+ModalShade.InputBegan:Connect(function(inp)
+	if inp.UserInputType == Enum.UserInputType.MouseButton1 then
+		local mpos = inp.Position
+		local absPos, absSize = Modal.AbsolutePosition, Modal.AbsoluteSize
+		local inside =
+			mpos.X >= absPos.X and mpos.X <= absPos.X + absSize.X and
+			mpos.Y >= absPos.Y and mpos.Y <= absPos.Y + absSize.Y
+		if not inside then
+			closeModal()
+		end
+	end
+end)
+
+local function showOperatorUpsell(opSymbol)
+	clearModalButtons()
+	popModal(("'%s' is not possible on <b>Free</b> perk.<br/>Upgrade to Basic to use operators. Upgrade to Premium to use '='."):format(opSymbol))
+	local freeBtn = modalButton("Free", "You're already on this perk.")
+	freeBtn.Parent = ModalBtns
+	freeBtn.MouseButton1Click:Connect(function()
+		Perk = "Free"
+		basicTrialActive = false
+		refreshPerkLabel()
+		closeModal()
+	end)
+
+	local basicBtn = modalButton(("Basic - %s"):format(BASIC_PRICE), "Unlock +  -  /  x  (includes 1-week free trial).")
+	basicBtn.Parent = ModalBtns
+	basicBtn.MouseButton1Click:Connect(function()
+		Perk = "Basic"
+		basicTrialActive = false
+		refreshPerkLabel()
+		closeModal()
+		CMD:Success("Calculator: Basic selected.")
+	end)
+
+	local trialBtn = modalButton("Start Basic trial (1 week)", "Try operators for 7 days (mock trial).")
+	trialBtn.Parent = ModalBtns
+	trialBtn.MouseButton1Click:Connect(function()
+		Perk = "Basic"
+		basicTrialActive = true
+		refreshPerkLabel()
+		closeModal()
+		CMD:Success("Calculator: Basic trial activated (mock).")
+	end)
+
+	local premBtn = modalButton(("Premium - %s"):format(PREMIUM_PRICE), "Unlock '=' button (and everything).")
+	premBtn.Parent = ModalBtns
+	premBtn.MouseButton1Click:Connect(function()
+		Perk = "Premium"
+		basicTrialActive = false
+		refreshPerkLabel()
+		closeModal()
+		CMD:Success("Calculator: Premium selected.")
+	end)
+end
+
+local function showEqualsUpsell()
+	clearModalButtons()
+	popModal(("'=' requires **Premium** perk (%s).\nBasic can use operators but not equals."):format(PREMIUM_PRICE))
+
+	local freeBtn = modalButton("Free", "You're already on this perk.")
+	freeBtn.Parent = ModalBtns
+	freeBtn.MouseButton1Click:Connect(function()
+		Perk = "Free"
+		basicTrialActive = false
+		refreshPerkLabel()
+		closeModal()
+	end)
+
+	local basicBtn = modalButton(("Basic - %s"):format(BASIC_PRICE), "Operators enabled (+ - / x), still no '='.")
+	basicBtn.Parent = ModalBtns
+	basicBtn.MouseButton1Click:Connect(function()
+		Perk = "Basic"
+		basicTrialActive = false
+		refreshPerkLabel()
+		closeModal()
+	end)
+
+	local premBtn = modalButton(("Premium - %s"):format(PREMIUM_PRICE), "Unlock '=' button.")
+	premBtn.Parent = ModalBtns
+	premBtn.MouseButton1Click:Connect(function()
+		Perk = "Premium"
+		basicTrialActive = false
+		refreshPerkLabel()
+		closeModal()
+	end)
+end
+
+local expr = "0"
+
+local function setExpr(s)
+	expr = tostring(s or "0")
+	if expr == "" then expr = "0" end
+	Display.Text = expr
+end
+
+local function appendDigit(d)
+	if expr == "0" then
+		setExpr(d)
+	else
+		setExpr(expr .. d)
+	end
+end
+
+local function clearExpr()
+	setExpr("0")
+end
+
+local function tryAddOperator(op)
+	if Perk == "Free" then
+		showOperatorUpsell(op)
+		return
+	end
+	setExpr(expr .. " " .. op .. " ")
+end
+
+local function tryEquals()
+	if Perk ~= "Premium" then
+		showEqualsUpsell()
+		return
+	end
+
+	local safe = expr:gsub("x", "*")
+	if safe:find("[^%d%s%+%-%*/%.%*]") then
+		setExpr("ERR")
+		return
+	end
+
+	local ok, result = pcall(function()
+		local f = loadstring("return " .. safe)
+		return f and f() or nil
+	end)
+
+	if ok and result ~= nil and tostring(result) ~= "nan" then
+		setExpr(tostring(result))
+	else
+		setExpr("ERR")
+	end
+end
+
+local keys = {
+	"7","8","9","/",
+	"4","5","6","x",
+	"1","2","3","-",
+	"C","0","=","+",
+}
+
+for i, k in ipairs(keys) do
+	local btn = makeKey(k)
+	btn.LayoutOrder = i
+	btn.Parent = Pad
+
+	btn.MouseButton1Click:Connect(function()
+		if k == "C" then
+			clearExpr()
+			return
+		end
+		if k == "=" then
+			tryEquals()
+			return
+		end
+		if k == "+" or k == "-" or k == "/" or k == "x" then
+			tryAddOperator(k)
+			return
+		end
+		appendDigit(k)
+	end)
+end
+
+local function showCalculator(on)
+	CalcScreen.Visible = on and true or false
+	Main.Visible = not CalcScreen.Visible
+	if CalcScreen.Visible then
+		CalcScreen.Position = Main.Position
+		setExpr("0")
+		refreshPerkLabel()
+	end
+end
+
+BackBtn.MouseButton1Click:Connect(function()
+	showCalculator(false)
+end)
+
+local function openCalculator()
+	showCalculator(true)
+end
+
+local minimized = false
+local savedSize = Main.Size
+local savedPos = Main.Position
+
+local function setMinimized(on)
+	minimized = on and true or false
+	if minimized then
+		savedSize = Main.Size
+		savedPos = Main.Position
+		Output.Visible = false
+		InputHolder.Visible = false
+		Main.Size = UDim2.new(0, savedSize.X.Offset, 0, 30)
+		AiStatus.Text = "AI: idle (minimized)"
+	else
+		Output.Visible = true
+		InputHolder.Visible = true
+		Main.Size = savedSize
+		Main.Position = savedPos
+		AiStatus.Text = "AI: idle"
+	end
+end
+
+MinBtn.MouseButton1Click:Connect(function()
+	setMinimized(not minimized)
+end)
+
+CloseBtn.MouseButton1Click:Connect(function()
+	CMD:Destroy()
+end)
+
+local function localHelp()
+	CMD:Print("Local commands (must start with '/'): ")
+	CMD:Print("  /help            - show this help (local)")
+	CMD:Print("  /approve         - run last proposed script")
+	CMD:Print("  /reject          - discard last proposed script")
+	CMD:Print("  /whoami          - shows your name (local)")
+	CMD:Print("  /tp x y z        - teleport (local)")
+	CMD:Print("  /clear           - clear output (local)")
+	CMD:Print("  /calculator      - open calculator UI (local)")
+	CMD:Print("  /min             - minimize/restore UI")
+	CMD:Print("  /exit            - close UI")
+	CMD:Print("")
+	CMD:Print("'/' Is used for commands, anything not starting with '/' is sent to the AI (if enabled).")
+end
+
+local function splitArgs(s)
+	local t = {}
+	for w in tostring(s):gmatch("%S+") do
+		table.insert(t, w)
+	end
+	return t
+end
+
+local function setPendingScript(note, code)
+	Exec.PendingNote = tostring(note or "")
+	Exec.PendingCode = tostring(code or "")
+
+	CMD:Success("Script proposed (NOT run). Type: /approve  |  /reject")
+	if Exec.PendingNote ~= "" then
+		CMD:Print("Note: " .. Exec.PendingNote)
+	end
+
+	CMD:Print("Preview:")
+	for line in Exec.PendingCode:gmatch("[^\n]+") do
+		CMD:Print(line)
+	end
+end
+
+local function approveAndRun()
+	if not Exec.PendingCode or Exec.PendingCode == "" then
+		CMD:Error("No pending script to run.")
+		return
+	end
+
+	if #Exec.PendingCode > 2000 then
+		CMD:Error("Pending script too large.")
+		return
+	end
+
+	CMD:Success("Running approved script...")
+
+	local fn, err = loadstring(Exec.PendingCode)
+	if not fn then
+		CMD:Error("Compile error: " .. tostring(err))
+		return
+	end
+
+	local ok, runtimeErr = pcall(fn)
+	if not ok then
+		CMD:Error("Runtime error: " .. tostring(runtimeErr))
+	else
+		CMD:Success("Done.")
+	end
+
+	Exec.PendingCode, Exec.PendingNote = nil, nil
+end
+
+local LocalCommands = {}
+
+LocalCommands.help = function()
+	localHelp()
+end
+
+LocalCommands.credits = function()
+	CMD:Success("Made by @nlva - Discord")
+end
+
+LocalCommands.approve = function()
+	approveAndRun()
+end
+
+LocalCommands.reject = function()
+	Exec.PendingCode, Exec.PendingNote = nil, nil
+	CMD:Success("Rejected pending script.")
+end
+
+LocalCommands.whoami = function()
+	local p = Players.LocalPlayer
+	CMD:Success("You are: " .. (p and p.Name or "unknown"))
+end
+
+LocalCommands.tp = function(args)
+	local x, y, z = tonumber(args[1]), tonumber(args[2]), tonumber(args[3])
+	if not (x and y and z) then
+		CMD:Error("Usage: /tp <x> <y> <z>")
+		return
+	end
+	local p = Players.LocalPlayer
+	local ch = p and p.Character
+	local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+	if hrp then
+		hrp.CFrame = CFrame.new(x, y, z)
+		CMD:Success(("Teleported to %.1f %.1f %.1f"):format(x, y, z))
+	else
+		CMD:Error("No HumanoidRootPart found.")
+	end
+end
+
+LocalCommands.calculator = function()
+	openCalculator()
+end
+
+LocalCommands.clear = function()
+	CMD:Clear()
+end
+
+LocalCommands.min = function()
+	setMinimized(not minimized)
+end
+
+LocalCommands.exit = function()
+	CMD:Destroy()
+end
+
+local function httpPostJson(url, bodyTable, headers)
+	local req =
+		(syn and syn.request)
+		or request
+		or http_request
+		or (http and http.request)
+
+	if not req then
+		return nil, "No request function found (syn.request/request/http_request)."
+	end
+
+	local res = req({
+		Url = url,
+		Method = "POST",
+		Headers = headers,
+		Body = HttpService:JSONEncode(bodyTable),
+	})
+
+	if not res then return nil, "No response" end
+	local code = tonumber(res.StatusCode) or 0
+	if code < 200 or code >= 300 then
+		return nil, ("HTTP %s: %s"):format(tostring(code), tostring(res.Body))
+	end
+	return res.Body
+end
+
+local thinkingThread = nil
+local function setAiThinking(on)
+	if on then
+		local alive = true
+		if thinkingThread then
+			thinkingThread.alive = false
+		end
+		thinkingThread = { alive = true }
+		local token = thinkingThread
+
+		task.spawn(function()
+			local dots = 0
+			while token.alive and ui.Parent do
+				dots = (dots + 1) % 4
+				AiStatus.Text = "AI: thinking" .. string.rep(".", dots)
+				task.wait(0.25)
+			end
+		end)
+	else
+		if thinkingThread then
+			thinkingThread.alive = false
+			thinkingThread = nil
+		end
+		if ui.Parent then
+			AiStatus.Text = minimized and "AI: idle (minimized)" or "AI: idle"
+		end
+	end
+end
+
+local function openrouterGetAction(userText)
+	if not AI.OPENROUTER_KEY or AI.OPENROUTER_KEY == "" or AI.OPENROUTER_KEY:find("PASTE_", 1, true) then
+		return nil, "No OpenRouter key set. Put it into AI.OPENROUTER_KEY."
+	end
+	if not AI.MODEL or AI.MODEL == "" then
+		return nil, "No model set. Put it into AI.MODEL."
+	end
+
+	local system = [[
+You are the brain for a Roblox command prompt UI.
+Return exactly ONE JSON object only (no markdown).
+
+Allowed actions:
+- say: {"action":"say","text":"..."}
+- cmd: {"action":"cmd","name":"<local_command>","args":["..."]}
+- propose_script: {"action":"propose_script","note":"what it does","code":"lua..."}
+- run_approved: {"action":"run_approved"}
+
+Rules:
+- IMPORTANT: Local (non-AI) commands only exist when the user types them with a leading slash, e.g. "/tp 0 10 0" or "/whoami".
+- If the user types WITHOUT "/", treat it as normal chat/AI request.
+- Prefer cmd when user clearly asked for a slash-command.
+- If code is needed, use propose_script.
+- NEVER claim you executed code unless the user explicitly approved it.
+- Keep code under 2000 characters.
+- If the user asks to run it now, return run_approved.
+- Otherwise use say.
+
+Return ONLY JSON.
+]]
+
+	local bodyTable = {
+		model = AI.MODEL,
+		temperature = 0.2,
+		max_tokens = 200,
+		messages = {
+			{ role = "system", content = system },
+			{ role = "user", content = tostring(userText) },
+		},
+		response_format = { type = "json_object" },
+	}
+
+	local headers = {
+		["Content-Type"] = "application/json",
+		["Authorization"] = "Bearer " .. AI.OPENROUTER_KEY,
+		["X-Title"] = AI.APP_NAME or "Roblox CMD UI",
+	}
+
+	setAiThinking(true)
+	local raw, err = httpPostJson(AI.ENDPOINT, bodyTable, headers)
+	setAiThinking(false)
+
+	if not raw then return nil, err end
+
+	local decoded = HttpService:JSONDecode(raw)
+	local content = ""
+	pcall(function()
+		content = decoded.choices[1].message.content or ""
+	end)
+
+	content = tostring(content):gsub("^%s+", ""):gsub("%s+$", "")
+	if content == "" then
+		return nil, "AI returned empty content."
+	end
+
+	local actionObj
+	local ok = pcall(function()
+		actionObj = HttpService:JSONDecode(content)
+	end)
+
+	if not ok or type(actionObj) ~= "table" then
+		return { action = "say", text = "I couldn't parse that. Try /help." }
+	end
+
+	return actionObj
+end
+
+local function handleCommand(raw)
+	local cmd = tostring(raw or ""):gsub("^%s+", ""):gsub("%s+$", "")
+	if cmd == "" then
+		CMD:Print(">")
+		return
+	end
+
+	CMD:Print("> " .. cmd)
+
+	if cmd:sub(1, 1) == "/" then
+		local withoutSlash = cmd:sub(2)
+		local parts = splitArgs(withoutSlash)
+		local name = (parts[1] or ""):lower()
+		table.remove(parts, 1)
+
+		local fn = LocalCommands[name]
+		if fn then
+			fn(parts)
+		else
+			CMD:Error("Unknown local command: /" .. tostring(name))
+			CMD:Print("Type /help for local commands.")
+		end
+		return
+	end
+
+	local actionObj, err = openrouterGetAction(cmd)
+	if not actionObj then
+		CMD:Error(tostring(err))
+		return
+	end
+
+	local action = tostring(actionObj.action or ""):lower()
+
+	if action == "say" then
+		CMD:Print(tostring(actionObj.text or "ok"))
+
+	elseif action == "cmd" then
+		local name = tostring(actionObj.name or ""):lower()
+		CMD:Print("AI suggests local command: /" .. name .. " (run it with '/').")
+
+	elseif action == "propose_script" then
+		setPendingScript(actionObj.note, actionObj.code)
+
+	elseif action == "run_approved" then
+		CMD:Print("Type '/approve' to run the last proposed script.")
+
+	else
+		CMD:Error("Unknown AI action: " .. tostring(action))
+	end
+end
+
+InputBox.FocusLost:Connect(function(enter)
+	if not enter then return end
+	local text = InputBox.Text
+	InputBox.Text = ""
+	updateCursor()
+
+	pcall(function()
+		handleCommand(text)
+	end)
+end)
+
+CMD:Success("AI CMD ready. Type /help (local).")
+return CMD

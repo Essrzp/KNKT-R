@@ -1,14 +1,28 @@
 local AI = {
-	OPENROUTER_KEY = "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",
-	MODEL = "deepseek/deepseek-chat",
-	ENDPOINT = "https://openrouter.ai/api/v1/chat/completions",
-	APP_NAME = "Roblox CMD UI",
+	API_KEY = "AIzaSyCpjT-qvjrKjqErwQRivXUt_ktH5g2mn_Y",
+    MODEL = "gemini-flash-latest",
+    ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/",
+    APP_NAME = "Roblox CMD UI",
+}
+
+local GATE = {
+	VERIFY_URL = "https://twilight-lake-5ac8.essrzp.workers.dev/verify",
+	LOCKED = true,
+	LastUnlockDate = nil, -- FIX: track day of unlock
 }
 
 local Exec = {
 	PendingCode = nil,
 	PendingNote = nil,
 }
+
+-- FIX: consistent "today" helper (local time)
+local function todayDate()
+	return os.date("%Y-%m-%d")
+end
+
+-- FIX: forward declare (so LocalCommands.key can call it before definition)
+local verifyDailyCode
 
 pcall(function()
 	local cg = game:GetService("CoreGui")
@@ -22,6 +36,30 @@ local TextService = game:GetService("TextService")
 local TweenService = game:GetService("TweenService")
 local LocalizationService = game:GetService("LocalizationService")
 
+-- ===== SETTINGS (GLOBAL) =====
+local Settings = {
+	Transparency = 0.10, -- 0..0.45
+	Accent = Color3.fromRGB(170,120,255),
+	Animations = true,
+	TypeSpeed = 70,
+}
+
+local function clamp(n, a, b)
+	if n < a then return a end
+	if n > b then return b end
+	return n
+end
+
+local function applySettings()
+	Settings.Transparency = clamp(Settings.Transparency, 0, 0.45)
+
+	if Main then Main.BackgroundTransparency = Settings.Transparency end
+	if CalcScreen then CalcScreen.BackgroundTransparency = Settings.Transparency end
+	if HelpScreen then HelpScreen.BackgroundTransparency = Settings.Transparency end
+	if CreditsScreen then CreditsScreen.BackgroundTransparency = Settings.Transparency end
+	if SettingsScreen then SettingsScreen.BackgroundTransparency = Settings.Transparency end
+end
+
 local ui = Instance.new("ScreenGui")
 ui.Name = "CMD_UI"
 ui.Parent = game:GetService("CoreGui")
@@ -34,8 +72,10 @@ Main.Size = UDim2.new(0, 520, 0, 320)
 Main.Position = UDim2.new(0.3, 0, 0.3, 0)
 Main.BackgroundColor3 = Color3.fromRGB(12, 12, 12)
 Main.BorderSizePixel = 0
+Main.BackgroundTransparency = 0.1 -- 0 = solid, 1 = invisible
 Main.Active = true
 Main.Draggable = true
+Main.ClipsDescendants = true -- important so it looks like it "prints out"
 
 local MainCorner = Instance.new("UICorner")
 MainCorner.CornerRadius = UDim.new(0, 8)
@@ -62,13 +102,17 @@ local TopTitle = Instance.new("TextLabel")
 TopTitle.Parent = Top
 TopTitle.BackgroundTransparency = 1
 TopTitle.BorderSizePixel = 0
-TopTitle.Position = UDim2.new(0, 10, 0, 0)
-TopTitle.Size = UDim2.new(1, -220, 1, 0)
+TopTitle.Position = UDim2.new(0, 44, 0, 0) 
+TopTitle.Size = UDim2.new(1, -254, 1, 0)
 TopTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
 TopTitle.Font = Enum.Font.Code
 TopTitle.TextSize = 14
-TopTitle.Text = "KNEEL AND KISS THE RAIN"
+TopTitle.Text = "KNKTR- V1.3 - AI CMD UI"
 TopTitle.TextXAlignment = Enum.TextXAlignment.Left
+local Padding = Instance.new("UIPadding")
+Padding.Parent = TopTitle
+Padding.PaddingLeft = UDim.new(0, 6) 
+TopTitle.Font = Enum.Font.GothamBold
 
 local Buttons = Instance.new("Frame")
 Buttons.Parent = Top
@@ -115,6 +159,898 @@ local function makeTopBtn(text, hoverColor, normalColor)
 
 	return b
 end
+
+-- === HAMBURGER + 4 TABS (paste ONCE right after TopTitle.TextXAlignment line, before "local Buttons = Instance.new") ===
+
+-- small local helper so this block is self-contained (does NOT depend on your makeTopBtn)
+local function makeMiniBtn(text, hoverColor, normalColor, w)
+	local b = Instance.new("TextButton")
+	b.AutoButtonColor = false
+	b.Text = text
+	b.Font = Enum.Font.Code
+	b.TextSize = 14
+	b.TextColor3 = Color3.fromRGB(235, 235, 235)
+	b.BackgroundColor3 = normalColor
+	b.BorderSizePixel = 0
+	b.Size = UDim2.new(0, w or 28, 0, 22)
+
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, 6)
+	c.Parent = b
+
+	local s = Instance.new("UIStroke")
+	s.Thickness = 1
+	s.Color = Color3.fromRGB(40, 40, 40)
+	s.Parent = b
+
+	b.MouseEnter:Connect(function()
+		b.BackgroundColor3 = hoverColor
+	end)
+	b.MouseLeave:Connect(function()
+		b.BackgroundColor3 = normalColor
+	end)
+
+	return b
+end
+
+-- Hamburger button (left)
+local BurgerBtn = makeMiniBtn("≡", Color3.fromRGB(35, 35, 35), Color3.fromRGB(26, 26, 26), 28)
+BurgerBtn.Position = UDim2.new(0, 10, 0, 4)
+BurgerBtn.Parent = Top
+
+-- Dropdown
+local TabsDrop = Instance.new("Frame")
+TabsDrop.Parent = Main
+TabsDrop.Visible = false
+TabsDrop.BackgroundColor3 = Color3.fromRGB(16, 16, 16)
+TabsDrop.BorderSizePixel = 0
+TabsDrop.Position = UDim2.new(0, 6, 0, 34)
+TabsDrop.Size = UDim2.new(0, 190, 0, 0) -- width
+TabsDrop.AutomaticSize = Enum.AutomaticSize.Y
+TabsDrop.ZIndex = 60
+
+do
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, 10)
+	c.Parent = TabsDrop
+
+	local s = Instance.new("UIStroke")
+	s.Thickness = 1
+	s.Color = Color3.fromRGB(40, 40, 40)
+	s.Parent = TabsDrop
+
+	local pad = Instance.new("UIPadding")
+	pad.Parent = TabsDrop
+	pad.PaddingTop = UDim.new(0, 8)
+	pad.PaddingLeft = UDim.new(0, 8)
+	pad.PaddingRight = UDim.new(0, 8)
+	pad.PaddingBottom = UDim.new(0, 8)
+
+	local lay = Instance.new("UIListLayout")
+	lay.Parent = TabsDrop
+	lay.SortOrder = Enum.SortOrder.LayoutOrder
+	lay.Padding = UDim.new(0, 6)
+end
+
+local function makeTabBtn(txt)
+	local b = Instance.new("TextButton")
+	b.AutoButtonColor = false
+	b.BackgroundColor3 = Color3.fromRGB(22, 22, 22)
+	b.BorderSizePixel = 0
+	b.Size = UDim2.new(1, 0, 0, 30)
+	b.Font = Enum.Font.Code
+	b.TextSize = 14
+	b.TextColor3 = Color3.fromRGB(235, 235, 235)
+	b.TextXAlignment = Enum.TextXAlignment.Left
+	b.Text = "  " .. txt
+	b.ZIndex = 61
+
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, 8)
+	c.Parent = b
+
+	local s = Instance.new("UIStroke")
+	s.Thickness = 1
+	s.Color = Color3.fromRGB(38, 38, 38)
+	s.Parent = b
+
+	b.MouseEnter:Connect(function()
+		b.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+	end)
+	b.MouseLeave:Connect(function()
+		b.BackgroundColor3 = Color3.fromRGB(22, 22, 22)
+	end)
+
+	return b
+end
+
+local tabConsole   = makeTabBtn("Console")
+local tabCalculator= makeTabBtn("Calculator")
+local tabHelp      = makeTabBtn("Get Key")
+local tabCredits   = makeTabBtn("Credits")
+local tabSettings  = makeTabBtn("Settings")
+
+tabConsole.Parent    = TabsDrop
+tabCalculator.Parent = TabsDrop
+tabHelp.Parent       = TabsDrop
+tabCredits.Parent    = TabsDrop
+tabSettings.Parent   = TabsDrop
+
+BurgerBtn.MouseButton1Click:Connect(function()
+	TabsDrop.Visible = not TabsDrop.Visible
+end)
+
+-- --- Help + Credits pages (blank pages with opt-out / back) ---
+local function makeBlankPage(titleText)
+	local page = Instance.new("Frame")
+	page.Parent = ui
+	page.Visible = false
+	page.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
+	page.BackgroundTransparency = 0.08
+	page.BorderSizePixel = 0
+	page.Size = Main.Size
+	page.Position = Main.Position
+	page.Active = true
+	page.Draggable = true
+	page.ZIndex = 80
+
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, 10)
+	c.Parent = page
+
+	local s = Instance.new("UIStroke")
+	s.Thickness = 1
+	s.Color = Color3.fromRGB(40, 40, 40)
+	s.Parent = page
+
+	local top = Instance.new("Frame")
+	top.Parent = page
+	top.Size = UDim2.new(1, 0, 0, 30)
+	top.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+	top.BorderSizePixel = 0
+	top.ZIndex = 81
+
+	local tc = Instance.new("UICorner")
+	tc.CornerRadius = UDim.new(0, 10)
+	tc.Parent = top
+
+	local mask = Instance.new("Frame")
+	mask.Parent = top
+	mask.Position = UDim2.new(0, 0, 1, -10)
+	mask.Size = UDim2.new(1, 0, 0, 10)
+	mask.BackgroundColor3 = top.BackgroundColor3
+	mask.BorderSizePixel = 0
+	mask.ZIndex = 81
+
+	local title = Instance.new("TextLabel")
+	title.Parent = top
+	title.BackgroundTransparency = 1
+	title.Size = UDim2.new(1, -120, 1, 0)
+	title.Position = UDim2.new(0, 10, 0, 0)
+	title.Font = Enum.Font.Code
+	title.TextSize = 14
+	title.TextXAlignment = Enum.TextXAlignment.Left
+	title.TextColor3 = Color3.fromRGB(255, 255, 255)
+	title.Text = titleText
+	title.ZIndex = 82
+
+	local back = makeMiniBtn("< Back", Color3.fromRGB(35, 35, 35), Color3.fromRGB(26, 26, 26), 92)
+	back.Parent = top
+	back.Position = UDim2.new(1, -102, 0, 4)
+	back.ZIndex = 82
+
+	local body = Instance.new("TextLabel")
+	body.Parent = page
+	body.BackgroundTransparency = 1
+	body.Position = UDim2.new(0, 14, 0, 44)
+	body.Size = UDim2.new(1, -28, 1, -58)
+	body.Font = Enum.Font.Code
+	body.TextSize = 14
+	body.TextXAlignment = Enum.TextXAlignment.Left
+	body.TextYAlignment = Enum.TextYAlignment.Top
+	body.TextColor3 = Color3.fromRGB(190, 190, 190)
+	body.TextWrapped = true
+	body.ZIndex = 81
+
+	return page, back, body
+end
+
+local HelpScreen, HelpBack, HelpBody = makeBlankPage("GET KEY")
+HelpBody.RichText = true
+HelpBody.Text = [[
+<b>GET A DAILY KEY</b>
+
+- NO WE DONT NEED YOU TO WATCH ADS, 
+JUST JOIN OUR DISCORD AND GET A FREE KEY EVERYDAY
+
+- Its to protect the gate from bots and scrapers, sorry for the inconvenience!!!
+
+Anyways, Join our discord from the link bellow, Go to #Get-key on discord, 
+and copy the key then paste it in the console by doing /key (7digetkey)
+
+]]
+
+local DISCORD_LINK = "https://discord.gg/DX5Avu7xp2"
+
+local function copyToClipboard(txt)
+	txt = tostring(txt or "")
+
+	local candidates = {
+		-- most common
+		setclipboard,
+		toclipboard,
+		set_clipboard,
+
+		-- Synapse-style variants
+		(syn and syn.setclipboard) or nil,
+		(syn and syn.set_clipboard) or nil,
+
+		-- KRNL / others sometimes expose this
+		(setClipboard) or nil,
+		(toClipboard) or nil,
+
+		-- Fluxus-style (some envs)
+		(getgenv and getgenv().setclipboard) or nil,
+		(getgenv and getgenv().set_clipboard) or nil,
+	}
+
+	for _, fn in ipairs(candidates) do
+		if typeof(fn) == "function" then
+			local ok = pcall(fn, txt)
+			if ok then return true end
+		end
+	end
+
+	return false
+end
+
+-- === AUTO LAYOUT (no overlap) + BETTER CLIPBOARD ===
+
+-- container that stacks items nicely
+local HelpContent = Instance.new("Frame")
+HelpContent.Parent = HelpScreen
+HelpContent.BackgroundTransparency = 1
+HelpContent.Position = UDim2.new(0, 14, 0, 44)
+HelpContent.Size = UDim2.new(1, -28, 1, -58)
+HelpContent.ZIndex = 110
+
+local HelpLayout = Instance.new("UIListLayout")
+HelpLayout.Parent = HelpContent
+HelpLayout.SortOrder = Enum.SortOrder.LayoutOrder
+HelpLayout.Padding = UDim.new(0, 10)
+
+-- make the body auto-size to fit text
+HelpBody.Parent = HelpContent
+HelpBody.AutomaticSize = Enum.AutomaticSize.Y
+HelpBody.Size = UDim2.new(1, 0, 0, 0)
+HelpBody.TextWrapped = true
+HelpBody.ZIndex = 111
+
+-- better clipboard copy function
+local function copyToClipboard(txt)
+	txt = tostring(txt or "")
+
+	local candidates = {
+		setclipboard,
+		toclipboard,
+		set_clipboard,
+		setrbxclipboard, -- common
+		(syn and (syn.setclipboard or syn.set_clipboard)) or nil,
+		(getgenv and (getgenv().setclipboard or getgenv().set_clipboard)) or nil,
+		(getgenv and getgenv().setrbxclipboard) or nil,
+	}
+
+	for _, fn in ipairs(candidates) do
+		if typeof(fn) == "function" then
+			local ok = pcall(fn, txt)
+			if ok then return true end
+		end
+	end
+
+	return false
+end
+
+-- clickable link button (auto stacked under HelpBody)
+local LinkBtn = Instance.new("TextButton")
+LinkBtn.Parent = HelpContent
+LinkBtn.AutoButtonColor = false
+LinkBtn.BackgroundTransparency = 1
+LinkBtn.Size = UDim2.new(1, 0, 0, 22)
+LinkBtn.Font = Enum.Font.Code
+LinkBtn.TextSize = 14
+LinkBtn.TextXAlignment = Enum.TextXAlignment.Left
+LinkBtn.TextColor3 = Color3.fromRGB(170, 120, 255)
+LinkBtn.RichText = true
+LinkBtn.Text = "<u>Join Discord via here</u>"
+LinkBtn.ZIndex = 112
+
+-- feedback label under the link (auto stacked)
+local CopyStatus = Instance.new("TextLabel")
+CopyStatus.Parent = HelpContent
+CopyStatus.BackgroundTransparency = 1
+CopyStatus.AutomaticSize = Enum.AutomaticSize.Y
+CopyStatus.Size = UDim2.new(1, 0, 0, 0)
+CopyStatus.Font = Enum.Font.Code
+CopyStatus.TextSize = 13
+CopyStatus.TextXAlignment = Enum.TextXAlignment.Left
+CopyStatus.TextColor3 = Color3.fromRGB(180, 180, 180)
+CopyStatus.TextWrapped = true
+CopyStatus.Text = ""
+CopyStatus.ZIndex = 112
+
+-- hover tint
+LinkBtn.MouseEnter:Connect(function()
+	LinkBtn.TextColor3 = Color3.fromRGB(220, 160, 255)
+end)
+LinkBtn.MouseLeave:Connect(function()
+	LinkBtn.TextColor3 = Color3.fromRGB(170, 120, 255)
+end)
+
+LinkBtn.MouseButton1Click:Connect(function()
+	local ok = copyToClipboard(DISCORD_LINK)
+
+	if ok then
+		CopyStatus.TextColor3 = Color3.fromRGB(120, 255, 120)
+		CopyStatus.Text = "Attempted to copy to clipboard!"
+	else
+		CopyStatus.TextColor3 = Color3.fromRGB(255, 120, 120)
+		CopyStatus.Text = "Clipboard not supported here. Copy manually:\n" .. DISCORD_LINK
+	end
+end)
+
+-- === END AUTO LAYOUT ===
+
+local CreditsScreen, CreditsBack, CreditsBody = makeBlankPage("Credits")
+CreditsBody.Text = "" -- leave as example; we add a visual below
+local SettingsScreen, SettingsBack, SettingsBody = makeBlankPage("Settings")
+
+-- ===== SETTINGS UI (build page) =====
+SettingsBody.Visible = false
+
+local SettingsWrap = Instance.new("Frame")
+SettingsWrap.Parent = SettingsScreen
+SettingsWrap.BackgroundTransparency = 1
+SettingsWrap.Position = UDim2.new(0, 14, 0, 44)
+SettingsWrap.Size = UDim2.new(1, -28, 1, -58)
+SettingsWrap.ZIndex = 110
+
+local WrapLayout = Instance.new("UIListLayout")
+WrapLayout.Parent = SettingsWrap
+WrapLayout.SortOrder = Enum.SortOrder.LayoutOrder
+WrapLayout.Padding = UDim.new(0, 10)
+
+local function makeSection(titleText, h)
+	local holder = Instance.new("Frame")
+	holder.BackgroundColor3 = Color3.fromRGB(14,14,14)
+	holder.BorderSizePixel = 0
+	holder.Size = UDim2.new(1, 0, 0, h or 70)
+	holder.ZIndex = 111
+
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, 12)
+	c.Parent = holder
+
+	local s = Instance.new("UIStroke")
+	s.Thickness = 1
+	s.Color = Color3.fromRGB(35,35,35)
+	s.Parent = holder
+
+	local title = Instance.new("TextLabel")
+	title.Parent = holder
+	title.BackgroundTransparency = 1
+	title.Position = UDim2.new(0, 12, 0, 10)
+	title.Size = UDim2.new(1, -24, 0, 18)
+	title.Font = Enum.Font.GothamBold
+	title.TextSize = 14
+	title.TextXAlignment = Enum.TextXAlignment.Left
+	title.TextColor3 = Color3.fromRGB(255,255,255)
+	title.Text = titleText
+	title.ZIndex = 112
+
+	return holder
+end
+
+local function makeToggleRow(parent, labelText, getValue, setValue)
+	local row = Instance.new("Frame")
+	row.Parent = parent
+	row.BackgroundTransparency = 1
+	row.Position = UDim2.new(0, 12, 0, 34)
+	row.Size = UDim2.new(1, -24, 0, 24)
+	row.ZIndex = 112
+
+	local lbl = Instance.new("TextLabel")
+	lbl.Parent = row
+	lbl.BackgroundTransparency = 1
+	lbl.Size = UDim2.new(1, -70, 1, 0)
+	lbl.Font = Enum.Font.Code
+	lbl.TextSize = 13
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.TextColor3 = Color3.fromRGB(190,190,190)
+	lbl.Text = labelText
+	lbl.ZIndex = 113
+
+	local btn = Instance.new("TextButton")
+	btn.Parent = row
+	btn.AutoButtonColor = false
+	btn.AnchorPoint = Vector2.new(1, 0)
+	btn.Position = UDim2.new(1, 0, 0, 0)
+	btn.Size = UDim2.new(0, 60, 1, 0)
+	btn.BackgroundColor3 = Color3.fromRGB(22,22,22)
+	btn.TextColor3 = Color3.fromRGB(235,235,235)
+	btn.Font = Enum.Font.Code
+	btn.TextSize = 13
+	btn.BorderSizePixel = 0
+	btn.ZIndex = 113
+
+	local bc = Instance.new("UICorner")
+	bc.CornerRadius = UDim.new(0, 10)
+	bc.Parent = btn
+
+	local bs = Instance.new("UIStroke")
+	bs.Thickness = 1
+	bs.Color = Color3.fromRGB(38,38,38)
+	bs.Parent = btn
+
+	local function refresh()
+		btn.Text = getValue() and "ON" or "OFF"
+		btn.BackgroundColor3 = getValue() and Color3.fromRGB(30,30,30) or Color3.fromRGB(22,22,22)
+	end
+	refresh()
+
+	btn.MouseButton1Click:Connect(function()
+		setValue(not getValue())
+		refresh()
+	end)
+
+	return btn
+end
+
+-- 1) Transparency
+local SecTrans = makeSection("Transparency", 92)
+SecTrans.Parent = SettingsWrap
+
+local TransLbl = Instance.new("TextLabel")
+TransLbl.Parent = SecTrans
+TransLbl.BackgroundTransparency = 1
+TransLbl.Position = UDim2.new(0, 12, 0, 34)
+TransLbl.Size = UDim2.new(1, -24, 0, 18)
+TransLbl.Font = Enum.Font.Code
+TransLbl.TextSize = 13
+TransLbl.TextXAlignment = Enum.TextXAlignment.Left
+TransLbl.TextColor3 = Color3.fromRGB(190,190,190)
+TransLbl.ZIndex = 112
+
+local Slider = Instance.new("Frame")
+Slider.Parent = SecTrans
+Slider.BackgroundColor3 = Color3.fromRGB(22,22,22)
+Slider.BorderSizePixel = 0
+Slider.Position = UDim2.new(0, 12, 0, 58)
+Slider.Size = UDim2.new(1, -24, 0, 10)
+Slider.ZIndex = 112
+Instance.new("UICorner", Slider).CornerRadius = UDim.new(1, 0)
+
+local Fill = Instance.new("Frame")
+Fill.Parent = Slider
+Fill.BackgroundColor3 = Color3.fromRGB(60,60,60)
+Fill.BorderSizePixel = 0
+Fill.Size = UDim2.new(0, 0, 1, 0)
+Fill.ZIndex = 113
+Instance.new("UICorner", Fill).CornerRadius = UDim.new(1, 0)
+
+local Knob = Instance.new("Frame")
+Knob.Parent = Slider
+Knob.BackgroundColor3 = Color3.fromRGB(235,235,235)
+Knob.BorderSizePixel = 0
+Knob.AnchorPoint = Vector2.new(0.5, 0.5)
+Knob.Position = UDim2.new(0, 0, 0.5, 0)
+Knob.Size = UDim2.new(0, 14, 0, 14)
+Knob.ZIndex = 114
+Instance.new("UICorner", Knob).CornerRadius = UDim.new(1, 0)
+
+local UIS = game:GetService("UserInputService")
+local dragging = false
+
+local function setSliderFromTransparency()
+	local t = clamp(Settings.Transparency, 0, 0.45)
+	local pct = t / 0.45
+	local w = Slider.AbsoluteSize.X
+	local x = pct * w
+	Fill.Size = UDim2.new(0, x, 1, 0)
+	Knob.Position = UDim2.new(0, x, 0.5, 0)
+	TransLbl.Text = ("Main transparency: %.2f (0.00 - 0.45)"):format(t)
+end
+
+local function setTransparencyFromMouse(xPos)
+	local absX = Slider.AbsolutePosition.X
+	local w = Slider.AbsoluteSize.X
+	local pct = clamp((xPos - absX) / w, 0, 1)
+	Settings.Transparency = pct * 0.45
+	applySettings()
+	setSliderFromTransparency()
+end
+
+Slider.InputBegan:Connect(function(inp)
+	if inp.UserInputType == Enum.UserInputType.MouseButton1 then
+		dragging = true
+		setTransparencyFromMouse(inp.Position.X)
+	end
+end)
+
+UIS.InputChanged:Connect(function(inp)
+	if dragging and inp.UserInputType == Enum.UserInputType.MouseMovement then
+		setTransparencyFromMouse(inp.Position.X)
+	end
+end)
+
+UIS.InputEnded:Connect(function(inp)
+	if inp.UserInputType == Enum.UserInputType.MouseButton1 then
+		dragging = false
+	end
+end)
+
+-- 2) Accent color presets
+local SecColor = makeSection("Main color (Accent)", 92)
+SecColor.Parent = SettingsWrap
+
+local ColorRow = Instance.new("Frame")
+ColorRow.Parent = SecColor
+ColorRow.BackgroundTransparency = 1
+ColorRow.Position = UDim2.new(0, 12, 0, 34)
+ColorRow.Size = UDim2.new(1, -24, 0, 44)
+ColorRow.ZIndex = 112
+
+local RowLayout = Instance.new("UIListLayout")
+RowLayout.Parent = ColorRow
+RowLayout.FillDirection = Enum.FillDirection.Horizontal
+RowLayout.SortOrder = Enum.SortOrder.LayoutOrder
+RowLayout.Padding = UDim.new(0, 8)
+
+local function colorBtn(c3)
+	local b = Instance.new("TextButton")
+	b.AutoButtonColor = false
+	b.Text = ""
+	b.Size = UDim2.new(0, 38, 0, 38)
+	b.BackgroundColor3 = c3
+	b.BorderSizePixel = 0
+	b.ZIndex = 113
+	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 10)
+
+	local bs = Instance.new("UIStroke")
+	bs.Thickness = 1
+	bs.Color = Color3.fromRGB(40,40,40)
+	bs.Parent = b
+
+	b.MouseButton1Click:Connect(function()
+		Settings.Accent = c3
+	end)
+
+	return b
+end
+
+colorBtn(Color3.fromRGB(170,120,255)).Parent = ColorRow
+colorBtn(Color3.fromRGB(120,255,120)).Parent = ColorRow
+colorBtn(Color3.fromRGB(255,120,120)).Parent = ColorRow
+colorBtn(Color3.fromRGB(120,180,255)).Parent = ColorRow
+colorBtn(Color3.fromRGB(255,200,120)).Parent = ColorRow
+
+-- 3) Animations toggle
+local SecAnim = makeSection("Animations", 70)
+SecAnim.Parent = SettingsWrap
+
+makeToggleRow(
+	SecAnim,
+	"Boot / typewriter / tweens",
+	function() return Settings.Animations end,
+	function(v) Settings.Animations = v end
+)
+
+-- 4) Utilities
+local SecUtil = makeSection("Utilities", 92)
+SecUtil.Parent = SettingsWrap
+
+local UtilRow = Instance.new("Frame")
+UtilRow.Parent = SecUtil
+UtilRow.BackgroundTransparency = 1
+UtilRow.Position = UDim2.new(0, 12, 0, 34)
+UtilRow.Size = UDim2.new(1, -24, 0, 44)
+UtilRow.ZIndex = 112
+
+local UtilLayout = Instance.new("UIListLayout")
+UtilLayout.Parent = UtilRow
+UtilLayout.FillDirection = Enum.FillDirection.Horizontal
+UtilLayout.SortOrder = Enum.SortOrder.LayoutOrder
+UtilLayout.Padding = UDim.new(0, 8)
+
+local function utilButton(text)
+	local b = Instance.new("TextButton")
+	b.AutoButtonColor = false
+	b.Text = text
+	b.Size = UDim2.new(0, 160, 0, 38)
+	b.BackgroundColor3 = Color3.fromRGB(22,22,22)
+	b.TextColor3 = Color3.fromRGB(235,235,235)
+	b.Font = Enum.Font.Code
+	b.TextSize = 13
+	b.BorderSizePixel = 0
+	b.ZIndex = 113
+	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 10)
+
+	local bs = Instance.new("UIStroke")
+	bs.Thickness = 1
+	bs.Color = Color3.fromRGB(38,38,38)
+	bs.Parent = b
+
+	return b
+end
+
+local ResetPos = utilButton("Reset position")
+ResetPos.Parent = UtilRow
+ResetPos.MouseButton1Click:Connect(function()
+	if Main then Main.Position = UDim2.new(0.3, 0, 0.3, 0) end
+	if CalcScreen then CalcScreen.Position = Main.Position end
+	if HelpScreen then HelpScreen.Position = Main.Position end
+	if CreditsScreen then CreditsScreen.Position = Main.Position end
+	if SettingsScreen then SettingsScreen.Position = Main.Position end
+end)
+
+local ResetDefaults = utilButton("Reset defaults")
+ResetDefaults.Parent = UtilRow
+ResetDefaults.MouseButton1Click:Connect(function()
+	Settings.Transparency = 0.10
+	Settings.Accent = Color3.fromRGB(170,120,255)
+	Settings.Animations = true
+	Settings.TypeSpeed = 70
+	applySettings()
+	setSliderFromTransparency()
+end)
+
+applySettings()
+task.defer(setSliderFromTransparency)
+-- ===== END SETTINGS UI =====
+
+SettingsBody.RichText = true
+SettingsBody.Text = [[
+<b>SETTINGS</b>
+
+Here you can configure the UI.
+
+• Toggle transparency
+• Toggle animations
+• Reset position
+
+(More coming soon)
+]]
+
+-- example visual for credits
+do
+	local card = Instance.new("Frame")
+	card.Parent = CreditsScreen
+	card.BackgroundColor3 = Color3.fromRGB(14, 14, 14)
+	card.BorderSizePixel = 0
+	card.Position = UDim2.new(0, 14, 0, 60)
+	card.Size = UDim2.new(1, -28, 0, 120)
+	card.ZIndex = 82
+
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, 12)
+	c.Parent = card
+
+	local s = Instance.new("UIStroke")
+	s.Thickness = 1
+	s.Color = Color3.fromRGB(35, 35, 35)
+	s.Parent = card
+
+	local t = Instance.new("TextLabel")
+	t.Parent = card
+	t.BackgroundTransparency = 1
+	t.Position = UDim2.new(0, 12, 0, 10)
+	t.Size = UDim2.new(1, -24, 0, 22)
+	t.Font = Enum.Font.Code
+	t.TextSize = 16
+	t.TextXAlignment = Enum.TextXAlignment.Left
+	t.TextColor3 = Color3.fromRGB(255, 255, 255)
+	t.Text = "- MAIN DEVELOPER"
+	t.ZIndex = 83
+
+	local sub = Instance.new("TextLabel")
+	sub.Parent = card
+	sub.BackgroundTransparency = 1
+	sub.Position = UDim2.new(0, 12, 0, 36)
+	sub.Size = UDim2.new(1, -24, 0, 18)
+	sub.Font = Enum.Font.Code
+	sub.TextSize = 13
+	sub.TextXAlignment = Enum.TextXAlignment.Left
+	sub.TextColor3 = Color3.fromRGB(180, 180, 180)
+	sub.RichText = true
+    sub.Text = '- BY @<font color="rgb(255,120,220)">NLVA</font> - Discord'
+	local glow = Instance.new("UIStroke")
+    glow.Parent = sub
+    glow.Thickness = 1
+    glow.Color = Color3.fromRGB(255, 120, 220) -- pink
+    glow.Transparency = 0.15
+    glow.LineJoinMode = Enum.LineJoinMode.Round
+    glow.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	task.spawn(function()
+    while sub.Parent do
+        for a = 0.15, 0.55, 0.02 do
+            glow.Transparency = a
+            task.wait(0.03)
+        end
+        for a = 0.55, 0.15, -0.02 do
+            glow.Transparency = a
+            task.wait(0.03)
+        end
+    end
+end)
+	sub.ZIndex = 83
+
+	local bar = Instance.new("Frame")
+	bar.Parent = card
+	bar.BackgroundColor3 = Color3.fromRGB(26, 26, 26)
+	bar.BorderSizePixel = 0
+	bar.Position = UDim2.new(0, 12, 0, 70)
+	bar.Size = UDim2.new(1, -24, 0, 34)
+	bar.ZIndex = 83
+
+	local bc = Instance.new("UICorner")
+	bc.CornerRadius = UDim.new(0, 10)
+	bc.Parent = bar
+
+	local bs = Instance.new("UIStroke")
+	bs.Thickness = 1
+	bs.Color = Color3.fromRGB(40, 40, 40)
+	bs.Parent = bar
+
+	local hint = Instance.new("TextLabel")
+	hint.Parent = bar
+	hint.BackgroundTransparency = 1
+	hint.Size = UDim2.new(1, -20, 1, 0)
+	hint.Position = UDim2.new(0, 10, 0, 0)
+	hint.Font = Enum.Font.Code
+	hint.TextSize = 13
+	hint.TextXAlignment = Enum.TextXAlignment.Left
+	hint.TextColor3 = Color3.fromRGB(200, 200, 200)
+	hint.Text = "CODER FOR KNKTR, VERY SUSSY AND PROBABLY HACKING YOUR ACCOUNT."
+	hint.ZIndex = 84
+end
+
+do
+	local card = Instance.new("Frame")
+	card.Parent = CreditsScreen
+	card.BackgroundColor3 = Color3.fromRGB(14, 14, 14)
+	card.BorderSizePixel = 0
+	card.Position = UDim2.new(0, 14, 0, 190) -- was 60, now lower
+	card.Size = UDim2.new(1, -28, 0, 120)
+	card.ZIndex = 82
+
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, 12)
+	c.Parent = card
+
+	local s = Instance.new("UIStroke")
+	s.Thickness = 1
+	s.Color = Color3.fromRGB(35, 35, 35)
+	s.Parent = card
+
+	local t = Instance.new("TextLabel")
+	t.Parent = card
+	t.BackgroundTransparency = 1
+	t.Position = UDim2.new(0, 12, 0, 10)
+	t.Size = UDim2.new(1, -24, 0, 22)
+	t.Font = Enum.Font.Code
+	t.TextSize = 16
+	t.TextXAlignment = Enum.TextXAlignment.Left
+	t.TextColor3 = Color3.fromRGB(255, 255, 255)
+	t.Text = "- IDEA GIVER"
+	t.ZIndex = 83
+
+	local sub = Instance.new("TextLabel")
+	sub.Parent = card
+	sub.BackgroundTransparency = 1
+	sub.Position = UDim2.new(0, 12, 0, 36)
+	sub.Size = UDim2.new(1, -24, 0, 18)
+	sub.Font = Enum.Font.Code
+	sub.TextSize = 13
+	sub.TextXAlignment = Enum.TextXAlignment.Left
+	sub.TextColor3 = Color3.fromRGB(180, 180, 180)
+	sub.Text = "- SRR (TRACED)"
+	sub.ZIndex = 83
+
+	local bar = Instance.new("Frame")
+	bar.Parent = card
+	bar.BackgroundColor3 = Color3.fromRGB(26, 26, 26)
+	bar.BorderSizePixel = 0
+	bar.Position = UDim2.new(0, 12, 0, 70)
+	bar.Size = UDim2.new(1, -24, 0, 34)
+	bar.ZIndex = 83
+
+	local bc = Instance.new("UICorner")
+	bc.CornerRadius = UDim.new(0, 10)
+	bc.Parent = bar
+
+	local bs = Instance.new("UIStroke")
+	bs.Thickness = 1
+	bs.Color = Color3.fromRGB(40, 40, 40)
+	bs.Parent = bar
+
+	local hint = Instance.new("TextLabel")
+	hint.Parent = bar
+	hint.BackgroundTransparency = 1
+	hint.Size = UDim2.new(1, -20, 1, 0)
+	hint.Position = UDim2.new(0, 10, 0, 0)
+	hint.Font = Enum.Font.Code
+	hint.TextSize = 13
+	hint.TextXAlignment = Enum.TextXAlignment.Left
+	hint.TextColor3 = Color3.fromRGB(200, 200, 200)
+	hint.Text = "Lowkey did not do alot, but HELPED, IG?"
+	hint.ZIndex = 84
+end
+
+-- === ROUTER (fix: never leave 2 pages open) ===
+local function hideAllPages()
+	-- hide dropdown too
+	if TabsDrop then TabsDrop.Visible = false end
+
+	-- hide all pages
+	if Main then Main.Visible = false end
+	if CalcScreen then CalcScreen.Visible = false end
+	if HelpScreen then HelpScreen.Visible = false end
+	if CreditsScreen then CreditsScreen.Visible = false end
+	if SettingsScreen then SettingsScreen.Visible = false end
+end
+
+local function showConsole()
+	hideAllPages()
+	Main.Visible = true
+end
+
+local function showHelp()
+	hideAllPages()
+	HelpScreen.Position = Main.Position
+	HelpScreen.Size = Main.Size
+	HelpScreen.Visible = true
+end
+
+local function showCredits()
+	hideAllPages()
+	CreditsScreen.Position = Main.Position
+	CreditsScreen.Size = Main.Size
+	CreditsScreen.Visible = true
+end
+
+local function showSettings()
+	hideAllPages()
+	SettingsScreen.Position = Main.Position
+	SettingsScreen.Size = Main.Size
+	SettingsScreen.Visible = true
+end
+-- === END ROUTER ===
+
+HelpBack.MouseButton1Click:Connect(showConsole)
+CreditsBack.MouseButton1Click:Connect(showConsole)
+SettingsBack.MouseButton1Click:Connect(showConsole)
+-- calculator back (optional if you want)
+
+tabCalculator.MouseButton1Click:Connect(function()
+	TabsDrop.Visible = false
+	-- run your existing /calculator handler safely (it exists later in the script)
+	if LocalCommands and LocalCommands.calculator then
+		LocalCommands.calculator()
+	else
+		-- fallback if somehow not ready
+		if CalcScreen then
+			CalcScreen.Position = Main.Position
+			CalcScreen.Visible = true
+			Main.Visible = false
+		end
+	end
+	HelpScreen.Visible = false
+	CreditsScreen.Visible = false
+end)
+
+tabHelp.MouseButton1Click:Connect(showHelp)
+tabCredits.MouseButton1Click:Connect(showCredits)
+tabSettings.MouseButton1Click:Connect(showSettings)
+-- === END HAMBURGER BLOCK ===
 
 local MinBtn = makeTopBtn("—", Color3.fromRGB(35, 35, 35), Color3.fromRGB(26, 26, 26))
 MinBtn.LayoutOrder = 1
@@ -230,9 +1166,101 @@ local function addLine(text, color)
 	Output.CanvasPosition = Vector2.new(0, math.max(0, Layout.AbsoluteContentSize.Y))
 end
 
+local function typeLine(text, color, cps)
+	cps = cps or Settings.TypeSpeed
+
+	if not Settings.Animations then
+		addLine(tostring(text or ""), color or Color3.fromRGB(255,255,255))
+		return
+	end
+
+	local L = Instance.new("TextLabel")
+	L.Parent = Output
+	L.BackgroundTransparency = 1
+	L.BorderSizePixel = 0
+	L.Size = UDim2.new(1, -6, 0, 18)
+	L.Font = Enum.Font.Code
+	L.TextSize = 14
+	L.TextXAlignment = Enum.TextXAlignment.Left
+	L.TextYAlignment = Enum.TextYAlignment.Center
+	L.TextColor3 = color or Color3.fromRGB(255,255,255)
+	L.Text = ""
+
+	task.wait()
+	Output.CanvasSize = UDim2.new(0, 0, 0, Layout.AbsoluteContentSize.Y + 2)
+	Output.CanvasPosition = Vector2.new(0, math.max(0, Layout.AbsoluteContentSize.Y))
+
+	local s = tostring(text or "")
+	for i = 1, #s do
+		L.Text = s:sub(1, i)
+		task.wait(1 / cps)
+	end
+
+	task.wait()
+	Output.CanvasSize = UDim2.new(0, 0, 0, Layout.AbsoluteContentSize.Y + 2)
+	Output.CanvasPosition = Vector2.new(0, math.max(0, Layout.AbsoluteContentSize.Y))
+end
+
+local function bootSequence()
+	if not Settings.Animations then
+	Output.Visible = true
+	InputHolder.Visible = true
+	CMD:Success("AI CMD ready. Type /help (local).")
+	return
+end
+	-- save your normal size/pos
+	local fullSize = Main.Size
+	local fullPos = Main.Position
+	local fullAnchor = Main.AnchorPoint
+
+	-- start as bar only (same place)
+	Output.Visible = false
+	InputHolder.Visible = false
+	Main.Active = false
+	Main.Draggable = false
+
+	Main.AnchorPoint = Vector2.new(0, 0)
+	Main.Position = fullPos
+	Main.Size = UDim2.new(0, fullSize.X.Offset, 0, 30)
+
+	-- wait with bar
+	task.wait(0.5)
+
+	-- expand animation
+	local tw = TweenService:Create(
+		Main,
+		TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{ Size = fullSize }
+	)
+	tw:Play()
+	tw.Completed:Wait()
+
+	-- restore drag + reveal
+	Main.AnchorPoint = fullAnchor
+	Main.Position = fullPos
+	Main.Active = true
+	Main.Draggable = true
+
+	Output.Visible = true
+	InputHolder.Visible = true
+
+	-- optional: clear anything that got printed before boot
+	for _, v in ipairs(Output:GetChildren()) do
+		if v:IsA("TextLabel") then v:Destroy() end
+	end
+	task.wait()
+	Output.CanvasSize = UDim2.new(0, 0, 0, 0)
+	Output.CanvasPosition = Vector2.new(0, 0)
+
+	-- type-print startup lines
+	typeLine("AI CMD ready.", Color3.fromRGB(170, 120, 255), 70)
+	typeLine("Type /help (local).", Color3.fromRGB(170, 120, 255), 70)
+end
+-- ===== END BOOT / LOADING ANIMATION =====
+
 local CMD = {}
 function CMD:Print(t) addLine(tostring(t), Color3.fromRGB(255, 255, 255)) end
-function CMD:Success(t) addLine(tostring(t), Color3.fromRGB(0, 255, 0)) end
+function CMD:Success(t) addLine(tostring(t), Color3.fromRGB(170, 120, 255)) end
 function CMD:Error(t) addLine(tostring(t), Color3.fromRGB(255, 80, 80)) end
 function CMD:Clear()
 	for _, v in ipairs(Output:GetChildren()) do
@@ -246,7 +1274,7 @@ function CMD:Destroy()
 	if ui then ui:Destroy() end
 end
 
-local Perk = "Free" 
+local Perk = "Free"
 local basicTrialActive = false
 
 local function getRegionalPrices()
@@ -324,6 +1352,9 @@ BackBtn.Font = Enum.Font.Code
 BackBtn.TextSize = 14
 BackBtn.Text = "< Back"
 BackBtn.ZIndex = 52
+BackBtn.MouseButton1Click:Connect(function()
+	showCalculator(false) -- or showConsole() if you want calculator back to always go console
+end)
 
 do
 	local c = Instance.new("UICorner")
@@ -447,6 +1478,7 @@ Modal.AnchorPoint = Vector2.new(0.5, 0.5)
 Modal.Position = UDim2.new(0.5, 0, 0.5, 0)
 Modal.Size = UDim2.new(0, 420, 0, 210)
 Modal.ZIndex = 201
+Modal.ClipsDescendants = true
 
 local ModalCorner = Instance.new("UICorner")
 ModalCorner.CornerRadius = UDim.new(0, 12)
@@ -482,13 +1514,18 @@ ModalBody.TextColor3 = Color3.fromRGB(190, 190, 190)
 ModalBody.ZIndex = 202
 ModalBody.TextWrapped = true
 ModalBody.Text = ""
+ModalBody.RichText = true -- (optional) enables <b> and <br/> you used
 
-local ModalBtns = Instance.new("Frame")
+local ModalBtns = Instance.new("ScrollingFrame")
 ModalBtns.Parent = Modal
 ModalBtns.BackgroundTransparency = 1
 ModalBtns.Position = UDim2.new(0, 14, 0, 92)
 ModalBtns.Size = UDim2.new(1, -28, 1, -106)
+ModalBtns.CanvasSize = UDim2.new(0, 0, 0, 0)
+ModalBtns.ScrollBarThickness = 4
+ModalBtns.BorderSizePixel = 0
 ModalBtns.ZIndex = 202
+ModalBtns.AutomaticCanvasSize = Enum.AutomaticSize.Y
 
 local ModalLayout = Instance.new("UIListLayout")
 ModalLayout.Parent = ModalBtns
@@ -556,12 +1593,24 @@ end
 local function popModal(message)
 	ModalShade.Visible = true
 	ModalBody.Text = message
-	Modal.Size = UDim2.new(0, 380, 0, 190)
 	Modal.BackgroundTransparency = 0.05
+
+	-- responsive sizing based on CalcScreen
+	local cs = CalcScreen.AbsoluteSize
+	local maxW = math.max(260, cs.X - 40) -- leave margin
+	local maxH = math.max(160, cs.Y - 60)
+
+	-- target size (your "ideal" size), clamped to screen
+	local targetW = math.min(420, maxW)
+	local targetH = math.min(210, maxH)
+
+	-- start a bit smaller then tween up
+	Modal.Size = UDim2.new(0, math.max(240, targetW - 40), 0, math.max(150, targetH - 30))
+
 	local tw = TweenService:Create(
 		Modal,
 		TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
-		{ Size = UDim2.new(0, 420, 0, 210) }
+		{ Size = UDim2.new(0, targetW, 0, targetH) }
 	)
 	tw:Play()
 end
@@ -628,7 +1677,7 @@ end
 
 local function showEqualsUpsell()
 	clearModalButtons()
-	popModal(("'=' requires **Premium** perk (%s).\nBasic can use operators but not equals."):format(PREMIUM_PRICE))
+	popModal(("'=' requires Premium perk (%s). Basic can use operators but not equals."):format(PREMIUM_PRICE))
 
 	local freeBtn = modalButton("Free", "You're already on this perk.")
 	freeBtn.Parent = ModalBtns
@@ -740,12 +1789,15 @@ for i, k in ipairs(keys) do
 end
 
 local function showCalculator(on)
-	CalcScreen.Visible = on and true or false
-	Main.Visible = not CalcScreen.Visible
-	if CalcScreen.Visible then
+	if on then
+		hideAllPages()
+		CalcScreen.Visible = true
 		CalcScreen.Position = Main.Position
 		setExpr("0")
 		refreshPerkLabel()
+	else
+		CalcScreen.Visible = false
+		Main.Visible = true
 	end
 end
 
@@ -763,22 +1815,53 @@ local savedPos = Main.Position
 
 local function setMinimized(on)
 	minimized = on and true or false
+
 	if minimized then
 		savedSize = Main.Size
 		savedPos = Main.Position
+
+		-- save original anchor so we can restore perfectly
+		savedAnchor = Main.AnchorPoint
+
 		Output.Visible = false
 		InputHolder.Visible = false
-		Main.Size = UDim2.new(0, savedSize.X.Offset, 0, 30)
+
+		local fullW = savedSize.X.Offset
+		local visibleW = 360 -- how much of the bar stays visible (tweak this)
+
+		-- push left so only "visibleW" pixels remain on-screen
+		local xPeek = -(fullW - visibleW)
+
+		-- anchor to bottom-left so it NEVER goes offscreen vertically
+		Main.AnchorPoint = Vector2.new(0, 1)
+		Main.Size = UDim2.new(0, fullW, 0, 30)
+		Main.Position = UDim2.new(0, xPeek, 1, -6) -- -6 = little padding from bottom
+
 		AiStatus.Text = "AI: idle (minimized)"
 	else
 		Output.Visible = true
 		InputHolder.Visible = true
+
+		-- restore exactly how it was
+		Main.AnchorPoint = savedAnchor or Vector2.new(0, 0)
 		Main.Size = savedSize
 		Main.Position = savedPos
+
 		AiStatus.Text = "AI: idle"
 	end
 end
 
+-- ===== KEYBIND: G TO TOGGLE MINIMIZE =====
+local UserInputService = game:GetService("UserInputService")
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+
+	if input.KeyCode == Enum.KeyCode.G then
+		setMinimized(not minimized)
+	end
+end)
+-- ===== END KEYBIND =====
 MinBtn.MouseButton1Click:Connect(function()
 	setMinimized(not minimized)
 end)
@@ -798,6 +1881,7 @@ local function localHelp()
 	CMD:Print("  /calculator      - open calculator UI (local)")
 	CMD:Print("  /min             - minimize/restore UI")
 	CMD:Print("  /exit            - close UI")
+	CMD:Print("  /key <#######>    - unlock using today's Discord code")
 	CMD:Print("")
 	CMD:Print("'/' Is used for commands, anything not starting with '/' is sent to the AI (if enabled).")
 end
@@ -854,7 +1938,25 @@ local function approveAndRun()
 	Exec.PendingCode, Exec.PendingNote = nil, nil
 end
 
-local LocalCommands = {}
+LocalCommands = {}
+
+LocalCommands.key = function(args)
+	local code = args[1]
+	if not code then
+		CMD:Error("Usage: /key <7-digit-code>")
+		return
+	end
+
+	CMD:Print("Checking daily code...")
+	local ok, msg = verifyDailyCode(code)
+	if ok then
+		GATE.LOCKED = false
+		GATE.LastUnlockDate = todayDate() -- FIX: store today's date
+		CMD:Success("Unlocked! You can now use AI and commands.")
+	else
+		CMD:Error("Wrong/invalid code: " .. tostring(msg))
+	end
+end
 
 LocalCommands.help = function()
 	localHelp()
@@ -937,10 +2039,59 @@ local function httpPostJson(url, bodyTable, headers)
 	return res.Body
 end
 
+-- FIX: now assigned to the forward-declared variable
+verifyDailyCode = function(code)
+	code = tostring(code or ""):gsub("%s+", "")
+
+	-- must be exactly 7 digits
+	if not code:match("^%d%d%d%d%d%d%d$") then
+		return false, "Code must be 7 digits."
+	end
+
+	local req =
+		(syn and syn.request)
+		or request
+		or http_request
+		or (http and http.request)
+
+	if not req then
+		return false, "No request function found (syn.request/request/http_request)."
+	end
+
+	local res = req({
+		Url = GATE.VERIFY_URL,
+		Method = "POST",
+		Headers = { ["Content-Type"] = "application/json" },
+		Body = HttpService:JSONEncode({ code = code }),
+	})
+
+	if not res then
+		return false, "No response from verify server."
+	end
+
+	local status = tonumber(res.StatusCode) or 0
+	if status < 200 or status >= 300 then
+		return false, ("Verify failed HTTP %s"):format(status)
+	end
+
+	local data
+	local ok = pcall(function()
+		data = HttpService:JSONDecode(res.Body)
+	end)
+	if not ok or type(data) ~= "table" then
+		return false, "Bad verify response."
+	end
+
+	if data.ok == true then
+		return true, "OK"
+	end
+
+	return false, tostring(data.reason or "wrong_code")
+end
+
 local thinkingThread = nil
 local function setAiThinking(on)
 	if on then
-		local alive = true
 		if thinkingThread then
 			thinkingThread.alive = false
 		end
@@ -966,78 +2117,118 @@ local function setAiThinking(on)
 	end
 end
 
-local function openrouterGetAction(userText)
-	if not AI.OPENROUTER_KEY or AI.OPENROUTER_KEY == "" or AI.OPENROUTER_KEY:find("PASTE_", 1, true) then
-		return nil, "No OpenRouter key set. Put it into AI.OPENROUTER_KEY."
+local function geminiGetAction(userText)
+	if GATE.LOCKED then
+		return nil, "Locked. Use /key first."
 	end
-	if not AI.MODEL or AI.MODEL == "" then
-		return nil, "No model set. Put it into AI.MODEL."
+
+	if not AI.API_KEY or AI.API_KEY == "" then
+		return nil, "No Gemini API key set."
 	end
 
 	local system = [[
 You are the brain for a Roblox command prompt UI.
-Return exactly ONE JSON object only (no markdown).
+
+CRITICAL RULES:
+- ALWAYS return ONLY valid JSON.
+- NO markdown.
+- NO explanations.
+- NO text before or after JSON.
+- If the user asks for a script, you MUST use action "propose_script".
 
 Allowed actions:
-- say: {"action":"say","text":"..."}
-- cmd: {"action":"cmd","name":"<local_command>","args":["..."]}
-- propose_script: {"action":"propose_script","note":"what it does","code":"lua..."}
-- run_approved: {"action":"run_approved"}
+say → normal reply
+cmd → suggest local command
+propose_script → provide Lua code
+run_approved → tell user to approve
 
-Rules:
-- IMPORTANT: Local (non-AI) commands only exist when the user types them with a leading slash, e.g. "/tp 0 10 0" or "/whoami".
-- If the user types WITHOUT "/", treat it as normal chat/AI request.
-- Prefer cmd when user clearly asked for a slash-command.
-- If code is needed, use propose_script.
-- NEVER claim you executed code unless the user explicitly approved it.
-- Keep code under 2000 characters.
-- If the user asks to run it now, return run_approved.
-- Otherwise use say.
+JSON formats:
 
-Return ONLY JSON.
+Say:
+{"action":"say","text":"message"}
+
+Propose script:
+{"action":"propose_script","note":"what it does","code":"lua code here"}
+
+Cmd:
+{"action":"cmd","name":"command"}
+
+Run:
+{"action":"run_approved"}
 ]]
 
-	local bodyTable = {
-		model = AI.MODEL,
-		temperature = 0.2,
-		max_tokens = 200,
-		messages = {
-			{ role = "system", content = system },
-			{ role = "user", content = tostring(userText) },
-		},
-		response_format = { type = "json_object" },
+	local url =
+		AI.ENDPOINT ..
+		AI.MODEL ..
+		":generateContent?key=" ..
+		AI.API_KEY
+
+	local body = {
+		contents = {
+			{
+				parts = {
+					{
+						text = system .. "\nUser: " .. tostring(userText)
+					}
+				}
+			}
+		}
 	}
 
-	local headers = {
-		["Content-Type"] = "application/json",
-		["Authorization"] = "Bearer " .. AI.OPENROUTER_KEY,
-		["X-Title"] = AI.APP_NAME or "Roblox CMD UI",
-	}
+	local req =
+		(syn and syn.request)
+		or request
+		or http_request
+		or (http and http.request)
 
-	setAiThinking(true)
-	local raw, err = httpPostJson(AI.ENDPOINT, bodyTable, headers)
-	setAiThinking(false)
-
-	if not raw then return nil, err end
-
-	local decoded = HttpService:JSONDecode(raw)
-	local content = ""
-	pcall(function()
-		content = decoded.choices[1].message.content or ""
-	end)
-
-	content = tostring(content):gsub("^%s+", ""):gsub("%s+$", "")
-	if content == "" then
-		return nil, "AI returned empty content."
+	if not req then
+		return nil, "No request function."
 	end
 
-	local actionObj
-	local ok = pcall(function()
-		actionObj = HttpService:JSONDecode(content)
+	setAiThinking(true)
+
+	local res = req({
+		Url = url,
+		Method = "POST",
+		Headers = {
+			["Content-Type"] = "application/json",
+		},
+		Body = HttpService:JSONEncode(body),
+	})
+
+	setAiThinking(false)
+
+	if not res then
+		return nil, "No response"
+	end
+
+	if res.StatusCode ~= 200 then
+		return nil, res.Body
+	end
+
+	local decoded = HttpService:JSONDecode(res.Body)
+
+	local content = ""
+	pcall(function()
+		content = decoded.candidates[1].content.parts[1].text
 	end)
 
-	if not ok or type(actionObj) ~= "table" then
-		return { action = "say", text = "I couldn't parse that. Try /help." }
+	content = tostring(content or "")
+
+	local actionObj
+local ok = pcall(function()
+    actionObj = HttpService:JSONDecode(content)
+end)
+
+if not ok or type(actionObj) ~= "table" or not actionObj.action then
+    return { action = "say", text = content }
+end
+
+if not ok or type(actionObj) ~= "table" or not actionObj.action then
+    return { action = "say", text = content }
+end
+	if not ok then
+		return { action = "say", text = content }
 	end
 
 	return actionObj
@@ -1051,6 +2242,18 @@ local function handleCommand(raw)
 	end
 
 	CMD:Print("> " .. cmd)
+
+	-- FIX: use todayDate() + ensure LastUnlockDate exists
+	if not GATE.LOCKED and (not GATE.LastUnlockDate or GATE.LastUnlockDate ~= todayDate()) then
+		GATE.LOCKED = true
+		CMD:Error("Daily key expired. Please /key <today's code> again.")
+		return
+	end
+
+	if GATE.LOCKED and cmd:sub(1, 1) ~= "/" then
+		CMD:Error("Gate locked, Open (Top-left) >Get Key")
+		return
+	end
 
 	if cmd:sub(1, 1) == "/" then
 		local withoutSlash = cmd:sub(2)
@@ -1068,7 +2271,7 @@ local function handleCommand(raw)
 		return
 	end
 
-	local actionObj, err = openrouterGetAction(cmd)
+	local actionObj, err = geminiGetAction(cmd)
 	if not actionObj then
 		CMD:Error(tostring(err))
 		return
@@ -1105,5 +2308,5 @@ InputBox.FocusLost:Connect(function(enter)
 	end)
 end)
 
-CMD:Success("AI CMD ready. Type /help (local).")
+task.spawn(bootSequence)
 return CMD

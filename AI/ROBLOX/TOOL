@@ -1,5 +1,5 @@
 local AI = {
-	API_KEY = "AIzaSyAkfsnQB2OcC_EXGDvqbpzHeWh0jrRnM-c",
+	API_KEY = "AIzaSyAIbcNk-aDP3Gw2LATUcwBIAybDFjrgzRk",
     MODEL = "gemini-flash-latest",
     ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/",
     APP_NAME = "Roblox CMD UI",

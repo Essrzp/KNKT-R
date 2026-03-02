@@ -1,9 +1,64 @@
+local HttpService = game:GetService("HttpService")
+
 local AI = {
-	API_KEY = "AIzaSyAJHLKrQPEMYfdbiBCvN4TDgligU1IW-xw",
-    MODEL = "gemini-flash-latest",
-    ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/",
-    APP_NAME = "Roblox CMD UI",
+  API_KEY = "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",
+  MODEL = "stepfun/step-3.5-flash:free",
+  ENDPOINT = "https://openrouter.ai/api/v1/chat/completions",
+  APP_NAME = "Roblox CMD UI",
 }
+
+local function callAI(userText)
+	local req =
+		(syn and syn.request)
+		or request
+		or http_request
+		or (http and http.request)
+
+	if not req then
+		return nil, "No request function found (syn.request/request/http_request)."
+	end
+
+	local body = {
+		model = AI.MODEL,
+		messages = {
+			{ role = "system", content = "You are a helpful assistant inside a Roblox CMD UI." },
+			{ role = "user", content = tostring(userText) },
+		},
+		temperature = 0.7,
+	}
+
+	local res = req({
+		Url = AI.ENDPOINT,
+		Method = "POST",
+		Headers = {
+	["Content-Type"] = "application/json",
+	["Authorization"] = "Bearer " .. AI.API_KEY,
+	["HTTP-Referer"] = "https://roblox.local/",
+	["X-Title"] = AI.APP_NAME,
+},
+		Body = HttpService:JSONEncode(body),
+		Timeout = 25, -- try this
+	})
+
+	if not res then
+		return nil, "No response"
+	end
+
+	local code = tonumber(res.StatusCode) or 0
+	if code < 200 or code >= 300 then
+		return nil, ("HTTP %s: %s"):format(tostring(code), tostring(res.Body))
+	end
+
+	local decoded = HttpService:JSONDecode(res.Body)
+	local text =
+		decoded
+		and decoded.choices
+		and decoded.choices[1]
+		and decoded.choices[1].message
+		and decoded.choices[1].message.content
+
+	return text, nil
+end
 
 local GATE = {
 	VERIFY_URL = "https://twilight-lake-5ac8.essrzp.workers.dev/verify",
@@ -31,7 +86,6 @@ pcall(function()
 end)
 
 local Players = game:GetService("Players")
-local HttpService = game:GetService("HttpService")
 local TextService = game:GetService("TextService")
 local TweenService = game:GetService("TweenService")
 local LocalizationService = game:GetService("LocalizationService")
@@ -2117,13 +2171,13 @@ local function setAiThinking(on)
 	end
 end
 
-local function geminiGetAction(userText)
+local function openrouterGetAction(userText)
 	if GATE.LOCKED then
 		return nil, "Locked. Use /key first."
 	end
 
 	if not AI.API_KEY or AI.API_KEY == "" then
-		return nil, "No Gemini API key set."
+		return nil, "No OpenRouter API key set."
 	end
 
 	local system = [[
@@ -2157,78 +2211,30 @@ Run:
 {"action":"run_approved"}
 ]]
 
-	local url =
-		AI.ENDPOINT ..
-		AI.MODEL ..
-		":generateContent?key=" ..
-		AI.API_KEY
-
-	local body = {
-		contents = {
-			{
-				parts = {
-					{
-						text = system .. "\nUser: " .. tostring(userText)
-					}
-				}
-			}
-		}
-	}
-
-	local req =
-		(syn and syn.request)
-		or request
-		or http_request
-		or (http and http.request)
-
-	if not req then
-		return nil, "No request function."
-	end
-
 	setAiThinking(true)
 
-	local res = req({
-		Url = url,
-		Method = "POST",
-		Headers = {
-			["Content-Type"] = "application/json",
-		},
-		Body = HttpService:JSONEncode(body),
-	})
+	local content, err
+	local ok = pcall(function()
+		content, err = callAI(system .. "\nUser: " .. tostring(userText))
+	end)
 
 	setAiThinking(false)
 
-	if not res then
-		return nil, "No response"
+	if not ok then
+		return nil, "AI call crashed (pcall): " .. tostring(content)
 	end
 
-	if res.StatusCode ~= 200 then
-		return nil, res.Body
+	if not content then
+		return nil, err
 	end
-
-	local decoded = HttpService:JSONDecode(res.Body)
-
-	local content = ""
-	pcall(function()
-		content = decoded.candidates[1].content.parts[1].text
-	end)
-
-	content = tostring(content or "")
 
 	local actionObj
-local ok = pcall(function()
-    actionObj = HttpService:JSONDecode(content)
-end)
+	local decodedOk = pcall(function()
+		actionObj = HttpService:JSONDecode(content)
+	end)
 
-if not ok or type(actionObj) ~= "table" or not actionObj.action then
-    return { action = "say", text = content }
-end
-
-if not ok or type(actionObj) ~= "table" or not actionObj.action then
-    return { action = "say", text = content }
-end
-	if not ok then
-		return { action = "say", text = content }
+	if not decodedOk or type(actionObj) ~= "table" or not actionObj.action then
+		return { action = "say", text = tostring(content) }
 	end
 
 	return actionObj
@@ -2271,7 +2277,7 @@ local function handleCommand(raw)
 		return
 	end
 
-	local actionObj, err = geminiGetAction(cmd)
+	local actionObj, err = openrouterGetAction(cmd)
 	if not actionObj then
 		CMD:Error(tostring(err))
 		return
